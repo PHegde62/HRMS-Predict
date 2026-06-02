@@ -1,0 +1,30 @@
+name: hrms-predictor
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - rdkit>=2023.09.1
+  - openjdk=17                      # BioTransformer JAR runtime
+  - pip
+
+  - pip:
+      # --- Web framework & serving ---
+      - fastapi>=0.111.0
+      - uvicorn[standard]>=0.29.0
+
+      # --- Frontend ---
+      - streamlit>=1.35.0
+      - streamlit-ketcher>=0.0.1     # Ketcher molecule editor widget
+
+      # --- Data handling ---
+      - pandas>=2.2.0
+      - openpyxl>=3.1.2              # Excel export for results tables
+      - requests>=2.31.0
+
+      # --- Deep learning (Meta-Predictor / MetaTrans) ---
+      - torch>=2.3.0
+      - transformers>=4.41.0         # HuggingFace for DL transformer SoM
+
+      # --- Rule-based metabolite generation (SyGMa) ---
+

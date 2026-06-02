@@ -1,0 +1,11 @@
+compound,expected,found,total_predicted,elapsed_s
+Diclofenac,2,1,37,2.2
+Acetaminophen,2,0,37,2.1
+Caffeine,2,2,13,2.1
+Warfarin,2,2,77,2.3
+Dextromethorphan,2,2,59,2.2
+Omeprazole,2,2,87,2.3
+Isoniazid,2,1,15,2.1
+Ibuprofen,2,1,37,2.2
+Metoprolol,2,2,47,2.2
+Tamoxifen,2,1,40,2.2

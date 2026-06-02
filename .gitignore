@@ -1,0 +1,13 @@
+﻿__pycache__/
+*.py[cod]
+*.pyo
+.env
+*.env.local
+envs/
+models/
+data/biotransformer/*.jar
+.pytest_cache/
+.DS_Store
+.vscode/
+.idea/
+.streamlit/secrets.toml
