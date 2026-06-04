@@ -47,6 +47,7 @@ from rdkit.Chem.Draw import rdMolDraw2D
 # (`uvicorn app.main:app`) or from inside `app/`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.engine.metabolism import aggregate_metabolism  # noqa: E402
+from app.engine.metabolism_improvements import apply_all_improvements  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -989,6 +990,18 @@ async def predict(body: PredictRequest) -> PredictResponse:
     # ── Build parent metrics ──────────────────────────────────────────────────
     raw_parent = raw["parent"]
     parent_formula = _molecular_formula(raw_parent["smiles"])
+
+    # ── Apply post-processing improvements (UGT re-scoring, sequential) ──────
+    try:
+        raw["metabolites"] = apply_all_improvements(
+            metabolite_list = raw["metabolites"],
+            parent_smiles   = raw_parent["smiles"],
+            run_sequential  = False,  # set True to generate Phase I→II metabolites (~2x slower)
+            run_ndealk      = True,   # add targeted N-dealkylation products
+            verbose         = False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("apply_all_improvements failed (non-fatal): %s", exc)
 
     parent_out = ParentMetrics(
         smiles           = raw_parent["smiles"],
