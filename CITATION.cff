@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+message: "If you use HRMS-Predict, please cite it using this metadata."
+type: software
+title: "HRMS-Predict: An Open-Source Ensemble Platform for In Silico Metabolite Prediction with HRMS Target List Generation"
+version: 1.0.0
+date-released: 2026-06-03
+doi: 10.5281/zenodo.20518280
+url: https://github.com/PHegde62/HRMS-Predict
+repository-code: https://github.com/PHegde62/HRMS-Predict
+license: Apache-2.0
+authors:
+  - family-names: Hegde
+    given-names: Pooja
+    affiliation: Genesis Molecular AI
+    orcid: ""
+keywords:
+  - drug metabolism
+  - metabolite prediction
+  - HRMS
+  - DMPK
+  - cheminformatics
+  - SyGMa
+  - SMARTCyp
+  - BioTransformer
+  - soft-spot
+  - open source
+abstract: >
+  HRMS-Predict is a free, open-source, locally-installable ensemble platform
+  for in silico Phase I and Phase II metabolite prediction. It combines SyGMa,
+  SMARTCyp, BioTransformer, MetaTrans, and Meta-Predictor into a single
+  pipeline with HRMS-grade exact mass annotation, enzyme-annotated soft-spot
+  visualisation, and one-click LC-HRMS target list export.
+  Validated against 1,245 substrates in MetXBioDB (63.0% pooled recall,
+  F1=0.305 at rank 10) and a ten-compound reference panel (93% recall).
+  RRID:SCR_028518.
