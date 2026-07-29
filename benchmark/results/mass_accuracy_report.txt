@@ -1,0 +1,184 @@
+========================================================================
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+HRMS-Predict -- Mass Accuracy Validation Report
+=
+
+Method
+------
+  Parent compound SMILES submitted to /predict endpoint.
+  Neutral monoisotopic mass from parent metrics in JSON response.
+  Literature masses from NIST Chemistry WebBook and PubChem.
+  ppm error = (predicted - literature) / literature * 10^6
+
+Results
+-------
+  Compounds tested      : 10
+  MW range              : 129 Da (Metformin) to 558 Da (Atorvastatin)
+  All within 1.0 ppm    : 10/10
+  Max |ppm error|       : 0.0000 ppm
+  Mean |ppm error|      : 0.0000 ppm
+  Max |mDa error|       : 0.0000 mDa
+
+Per-Compound Results
+--------------------
+  Aspirin               MW=180.0423  ppm=+0.0000  mDa=0.0000
+  Acetaminophen         MW=151.0633  ppm=+0.0000  mDa=0.0000
+  Caffeine              MW=194.0804  ppm=+0.0000  mDa=0.0000
+  Ibuprofen             MW=206.1307  ppm=+0.0000  mDa=0.0000
+  Diclofenac            MW=295.0167  ppm=+0.0000  mDa=0.0000
+  Warfarin              MW=308.1049  ppm=+0.0000  mDa=0.0000
+  Omeprazole            MW=345.1147  ppm=+0.0000  mDa=0.0000
+  Metformin             MW=129.1014  ppm=+0.0000  mDa=0.0000
+  Naproxen              MW=230.0943  ppm=+0.0000  mDa=0.0000
+  Atorvastatin          MW=558.2530  ppm=+0.0000  mDa=0.0000
+
+Interpretation
+--------------
+  All 10/10 compounds show ppm error < 1.0 ppm.
+  The [M+H]+ adduct mass is calculated as:
+      [M+H]+ = M_neutral + 1.007276 Da (proton mass, IUPAC 2018)
+  Instrument mass accuracy (1-5 ppm on Orbitrap/Q-TOF) is the
+  dominant source of error in practice, not this calculation.
+
+Files saved to: benchmark/results/

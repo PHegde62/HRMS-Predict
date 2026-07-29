@@ -1,0 +1,32 @@
+# HRMS-Predict — base pip requirements.
+# Works for BOTH Streamlit Community Cloud (plain pip) and the Cloud Run image.
+#
+# NOTE:
+#  * SyGMa is NOT listed here. It has no wheel and its build needs RDKit +
+#    --no-build-isolation, which Streamlit Cloud can't provide. Instead the
+#    SyGMa source is vendored into the repo at ./sygma/ (pure Python + rules).
+#  * torch + transformers (DL pipeline) are heavy and optional; the torch
+#    import is guarded, and the DL models/ folder is empty, so they are left
+#    out here to stay within Streamlit Cloud's memory limit. The Cloud Run
+#    Dockerfile installs them separately for full DL capability.
+
+# --- Chemistry ---
+rdkit>=2023.9.1
+numpy>=1.26
+
+# --- Engine + in-process transport ---
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+httpx>=0.27.0          # Starlette TestClient (runs the engine in-process)
+
+# --- Frontend ---
+streamlit>=1.35.0
+streamlit-ketcher>=0.0.1
+
+# --- Data handling / export ---
+pandas>=2.2.0
+openpyxl>=3.1.2
+requests>=2.31.0
+
+# --- Reporting ---
+reportlab>=4.0.0

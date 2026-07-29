@@ -47,6 +47,7 @@ from rdkit.Chem.Draw import rdMolDraw2D
 # (`uvicorn app.main:app`) or from inside `app/`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.engine.metabolism import aggregate_metabolism  # noqa: E402
+from app.engine.metabolism import prioritize_predictions  # noqa: E402
 from app.engine.metabolism_improvements import apply_all_improvements  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -142,6 +143,47 @@ class PredictRequest(BaseModel):
         le=110.0,
         description="Maximum DFT activation energy (kcal/mol) for SMARTCyp rules.",
     )
+    # ── Output control ────────────────────────────────────────────────────────
+    top_n: int = Field(
+        12,
+        ge=1,
+        le=500,
+        description=(
+            "Number of metabolites to display in the ranked section of the report. "
+            "Any integer from 1 to 500. Default 12 matches the original PDF layout."
+        ),
+    )
+    return_all: bool = Field(
+        False,
+        description=(
+            "If True, the response includes ALL predicted metabolites (not just top_n) "
+            "in a separate `all_metabolites` list, suitable for a full LC-HRMS target list. "
+            "The ranked `metabolites` list still contains only top_n entries."
+        ),
+    )
+    # ── Improvement toggles ───────────────────────────────────────────────────
+    run_sequential: bool = Field(
+        False,
+        description="Generate Phase I→II sequential metabolites via SyGMa (~2× slower).",
+    )
+    run_ndealk: bool = Field(
+        True,
+        description="Add targeted N-dealkylation products (piperazine N-aryl, N-methyl).",
+    )
+    run_reduction: bool = Field(
+        True,
+        description="Add carbonyl/N-oxide reduction products (+2H, −O).",
+    )
+
+    prioritize: bool = Field(
+        True,
+        description=(
+            "Apply DMPK-empirical prioritisation: cap redundant regioisomers "
+            "and rescore by mass-spec relevance (direct glucuronide / scaffold "
+            "cleavage = High; hindered aromatic hydroxylation = Low), then sort "
+            "by the new confidence score."
+        ),
+    )
 
     @field_validator("smiles")
     @classmethod
@@ -220,6 +262,7 @@ class MetaboliteEntry(BaseModel):
 class SoftSpotSummary(BaseModel):
     top_atoms: list[int]
     top_rules: list[str]
+    atom_scores: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class PipelineStats(BaseModel):
@@ -235,6 +278,13 @@ class PipelineStats(BaseModel):
 class PredictResponse(BaseModel):
     parent: ParentMetrics
     metabolites: list[MetaboliteEntry]
+    all_metabolites: list[MetaboliteEntry] = Field(
+        default_factory=list,
+        description=(
+            "Full list of all predicted metabolites (populated only when "
+            "return_all=True in the request). Same schema as `metabolites`."
+        ),
+    )
     soft_spot_summary: SoftSpotSummary
     pipeline_stats: PipelineStats
 
@@ -996,12 +1046,32 @@ async def predict(body: PredictRequest) -> PredictResponse:
         raw["metabolites"] = apply_all_improvements(
             metabolite_list = raw["metabolites"],
             parent_smiles   = raw_parent["smiles"],
-            run_sequential  = False,  # set True to generate Phase I→II metabolites (~2x slower)
-            run_ndealk      = True,   # add targeted N-dealkylation products
+            run_sequential  = body.run_sequential,
+            run_ndealk      = body.run_ndealk,
+            run_reduction   = body.run_reduction,
             verbose         = False,
         )
     except Exception as exc:  # noqa: BLE001
         log.warning("apply_all_improvements failed (non-fatal): %s", exc)
+
+    # -- DMPK-empirical prioritisation + regioisomer capping --------------------
+    # Attach the human-readable transformation_type so the prioritiser can tell
+    # hindered aromatic hydroxylations (downgraded) from accessible aliphatic
+    # oxidations, then cap regioisomers and rescore by mass-spec relevance.
+    if body.prioritize:
+        try:
+            for _m in raw["metabolites"]:
+                _sc = [{"rule": s.get("rule", ""), "isoform": s.get("isoform", ""),
+                        "ea": s.get("ea", 0.0)} for s in _m.get("smartcyp_scores", [])]
+                _ttype, _ = _classify_transformation(
+                    _m.get("reaction_label", ""), _sc,
+                    _m.get("source_pipeline", ""), _m.get("phase", 0),
+                    raw["parent"]["smiles"],
+                )
+                _m["transformation_type"] = _ttype
+            raw["metabolites"] = prioritize_predictions(raw["metabolites"])
+        except Exception as exc:  # noqa: BLE001
+            log.warning("prioritize_predictions failed (non-fatal): %s", exc)
 
     parent_out = ParentMetrics(
         smiles           = raw_parent["smiles"],
@@ -1014,7 +1084,11 @@ async def predict(body: PredictRequest) -> PredictResponse:
     )
 
     # ── Build metabolite list with consensus filter ───────────────────────────
+    # `metabolites_out` holds the top_n ranked entries shown in the report.
+    # `all_metabolites_out` holds every predicted metabolite and is populated
+    # only when return_all=True — it is the full LC-HRMS target list.
     metabolites_out: list[MetaboliteEntry] = []
+    all_metabolites_out: list[MetaboliteEntry] = []
     consensus_count = 0
 
     for rank, m in enumerate(raw["metabolites"], start=1):
@@ -1039,40 +1113,42 @@ async def predict(body: PredictRequest) -> PredictResponse:
             except Exception:  # noqa: BLE001
                 pass
 
-        metabolites_out.append(
-            MetaboliteEntry(
-                rank               = rank,
-                smiles_canonical   = m["smiles_canonical"],
-                inchikey           = m["inchikey"],
-                molecular_formula  = _molecular_formula(m["smiles_canonical"]),
-                neutral_mass       = m["neutral_mass"],
-                delta_mass         = m["delta_mass"],
-                adducts            = HRMSAdducts(
-                    mplus_h  = m["adduct_mplus_h"],
-                    mminus_h = m["adduct_mminus_h"],
-                ),
-                source_pipeline    = m["source_pipeline"],
-                reaction_label     = m.get("reaction_label", ""),
-                phase              = m.get("phase", 0),
-                soft_spot_atoms    = m.get("soft_spot_atoms", []),
-                smartcyp_scores    = sc_scores,
-                dl_confidence      = m.get("dl_confidence", 0.0),
-                ensemble_score     = m.get("ensemble_score", 0.0),
-                consensus_verified  = consensus_verified,
-                confidence_label    = confidence_label,
-                **dict(zip(
-                    ("transformation_type", "responsible_enzyme"),
-                    _classify_transformation(
-                        m.get("reaction_label", ""),
-                        [{"rule": s.rule, "isoform": s.isoform, "ea": s.ea}
-                         for s in sc_scores],
-                        m.get("source_pipeline", ""),
-                        m.get("phase", 0),
-                        raw["parent"]["smiles"],   # parent SMILES for structural context
-                    )
-                )),
-            )
+        txn_type, resp_enzyme = _classify_transformation(
+            m.get("reaction_label", ""),
+            [{"rule": s.rule, "isoform": s.isoform, "ea": s.ea} for s in sc_scores],
+            m.get("source_pipeline", ""),
+            m.get("phase", 0),
+            raw["parent"]["smiles"],
         )
+        entry = MetaboliteEntry(
+            rank               = rank,
+            smiles_canonical   = m["smiles_canonical"],
+            inchikey           = m["inchikey"],
+            molecular_formula  = _molecular_formula(m["smiles_canonical"]),
+            neutral_mass       = m["neutral_mass"],
+            delta_mass         = (m["delta_mass"] if isinstance(m["delta_mass"], str)
+                                  else f"{float(m['delta_mass']):+.4f}"),
+            adducts            = HRMSAdducts(
+                mplus_h  = m["adduct_mplus_h"],
+                mminus_h = m["adduct_mminus_h"],
+            ),
+            source_pipeline    = m["source_pipeline"],
+            reaction_label     = m.get("reaction_label", ""),
+            phase              = m.get("phase", 0),
+            soft_spot_atoms    = m.get("soft_spot_atoms", []),
+            smartcyp_scores    = sc_scores,
+            dl_confidence      = m.get("dl_confidence", 0.0),
+            ensemble_score     = m.get("ensemble_score", 0.0),
+            consensus_verified  = consensus_verified,
+            confidence_label    = confidence_label,
+            transformation_type = txn_type,
+            responsible_enzyme  = resp_enzyme,
+        )
+        # Always populate all_metabolites_out (used when return_all=True)
+        all_metabolites_out.append(entry)
+        # Only add to ranked list if within top_n
+        if rank <= body.top_n:
+            metabolites_out.append(entry)
 
     # ── Pipeline stats ────────────────────────────────────────────────────────
     raw_stats = raw["pipeline_stats"]
@@ -1097,6 +1173,7 @@ async def predict(body: PredictRequest) -> PredictResponse:
     return PredictResponse(
         parent             = parent_out,
         metabolites        = metabolites_out,
+        all_metabolites    = all_metabolites_out if body.return_all else [],
         soft_spot_summary  = SoftSpotSummary(**raw["soft_spot_summary"]),
         pipeline_stats     = stats_out,
     )

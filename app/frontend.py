@@ -24,6 +24,7 @@ Run
 from __future__ import annotations
 
 import io
+import os
 import time
 from typing import Any
 
@@ -32,14 +33,57 @@ import requests
 import streamlit as st
 from streamlit_ketcher import st_ketcher
 
+try:
+    from app.cdd_client import fetch_smiles_by_name, CDDError  # package run
+except Exception:  # noqa: BLE001
+    from cdd_client import fetch_smiles_by_name, CDDError       # `streamlit run app/frontend.py`
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-BACKEND_URL   = "http://localhost:8000"
+BACKEND_URL   = os.environ.get("HRMS_BACKEND_URL", "http://localhost:8080")
+_BACKEND_PORT = BACKEND_URL.rsplit(":", 1)[-1].split("/")[0] or "8080"
 PREDICT_URL   = f"{BACKEND_URL}/predict"
 SOFT_SPOT_URL = f"{BACKEND_URL}/render-soft-spots"
 HEALTH_URL    = f"{BACKEND_URL}/health"
+
+# ---------------------------------------------------------------------------
+# Transport: use a real HTTP backend when one is reachable, otherwise run the
+# FastAPI engine IN-PROCESS (e.g. on Streamlit Community Cloud, where only the
+# Streamlit process exists). In-process mode reuses app/main.py verbatim via a
+# Starlette TestClient -- no second server, no ports.
+# ---------------------------------------------------------------------------
+_MODE = None            # "http" | "inprocess" | None (offline)
+_IP_CLIENT = None
+
+
+def _get_inprocess_client():
+    global _IP_CLIENT
+    if _IP_CLIENT is None:
+        from fastapi.testclient import TestClient
+        from app.main import app as _fastapi_app
+        _IP_CLIENT = TestClient(_fastapi_app, raise_server_exceptions=False)
+    return _IP_CLIENT
+
+
+def _path_of(url: str) -> str:
+    if "://" in url:
+        rest = url.split("://", 1)[1]
+        return "/" + rest.split("/", 1)[1] if "/" in rest else "/"
+    return url
+
+
+def _http_post(url, json=None, timeout=None):
+    if _MODE == "inprocess":
+        return _get_inprocess_client().post(_path_of(url), json=json)
+    return requests.post(url, json=json, timeout=timeout)
+
+
+def _http_get(url, timeout=None):
+    if _MODE == "inprocess":
+        return _get_inprocess_client().get(_path_of(url))
+    return requests.get(url, timeout=timeout)
 
 COLOUR_SCHEMES = {"Enzyme class (recommended)": "isoform", "Risk gradient": "risk"}
 
@@ -621,11 +665,26 @@ footer    { visibility: hidden; }
 # ---------------------------------------------------------------------------
 
 def _check_backend_health() -> bool:
+    global _MODE
+    force_ip = os.environ.get("HRMS_INPROCESS", "").strip().lower() in ("1", "true", "yes")
+    if not force_ip:
+        try:
+            r = requests.get(HEALTH_URL, timeout=2.5)
+            if r.status_code == 200 and r.json().get("status") == "ok":
+                _MODE = "http"
+                return True
+        except Exception:
+            pass
+    # No reachable HTTP backend -> run the full engine in-process.
     try:
-        r = requests.get(HEALTH_URL, timeout=2.5)
-        return r.status_code == 200 and r.json().get("status") == "ok"
+        r = _get_inprocess_client().get("/health")
+        if r.status_code == 200 and r.json().get("status") == "ok":
+            _MODE = "inprocess"
+            return True
     except Exception:
-        return False
+        pass
+    _MODE = None
+    return False
 
 
 def _pipeline_badge(name: str) -> str:
@@ -721,6 +780,7 @@ def _fetch_soft_spot_svg(
     metabolites: list[dict[str, Any]],
     scheme: str,
     alpha_max: float,
+    soft_spot_summary: dict[str, Any] | None = None,
     width: int = 560,
     height: int = 380,
 ) -> str | None:
@@ -742,6 +802,30 @@ def _fetch_soft_spot_svg(
                 atom_isoforms[atom_idx].add(iso)
                 # Also ensure the atom appears in score map
                 atom_max_score[atom_idx] = max(atom_max_score.get(atom_idx, 0.0), escore)
+
+    # Build the per-atom payload from the metabolites shown in the ranked table.
+    payload_from_mets = bool(atom_max_score)
+
+    # Fallback: the authoritative soft-spot scores are computed by the backend
+    # over the FULL metabolite set before any prioritisation/capping, and live
+    # in soft_spot_summary["atom_scores"]. The SMARTCyp parent record that
+    # carries per-metabolite soft_spot_atoms can be ranked out of the shown
+    # top-N, leaving atom_max_score empty even though soft spots exist — so we
+    # rebuild from the summary whenever the metabolite-derived map is empty.
+    if not payload_from_mets and soft_spot_summary:
+        for entry in soft_spot_summary.get("atom_scores", []):
+            idx = entry.get("atom_idx")
+            if idx is None:
+                continue
+            sc = float(entry.get("score", 0.0))
+            atom_max_score[idx] = max(atom_max_score.get(idx, 0.0), sc)
+            iso = (entry.get("isoform") or "").strip()
+            if iso:
+                atom_isoforms.setdefault(idx, set()).add(iso)
+        # Last resort: top_atoms with a uniform mid score (no isoform info).
+        if not atom_max_score:
+            for idx in soft_spot_summary.get("top_atoms", []):
+                atom_max_score[idx] = 0.5
 
     if not atom_max_score:
         return None
@@ -771,7 +855,7 @@ def _fetch_soft_spot_svg(
         })
 
     try:
-        r = requests.post(SOFT_SPOT_URL, json={
+        r = _http_post(SOFT_SPOT_URL, json={
             "smiles":              smiles,
             "atom_scores":         atom_scores_payload,
             "width":               width,
@@ -783,7 +867,7 @@ def _fetch_soft_spot_svg(
             return r.text
         st.error(f"SVG render error {r.status_code}: {r.text[:200]}")
         return None
-    except requests.RequestException as exc:
+    except Exception as exc:
         st.error(f"Cannot reach render endpoint: {exc}")
         return None
 
@@ -863,12 +947,14 @@ def _render_svg_panel(
     metabolites: list[dict[str, Any]],
     scheme: str,
     alpha_max: float,
+    soft_spot_summary: dict[str, Any] | None = None,
 ) -> None:
     st.markdown('<div class="section-header">Metabolic Soft-Spot Map</div>',
                 unsafe_allow_html=True)
 
     with st.spinner("Rendering atom vulnerability map…"):
-        svg = _fetch_soft_spot_svg(smiles, metabolites, scheme, alpha_max)
+        svg = _fetch_soft_spot_svg(smiles, metabolites, scheme, alpha_max,
+                                   soft_spot_summary=soft_spot_summary)
 
     if svg:
         st.markdown(f'<div class="svg-frame">{svg}</div>', unsafe_allow_html=True)
@@ -880,6 +966,11 @@ def _render_svg_panel(
                 iso = sc.get("isoform", "").strip()
                 if iso:
                     iso_counts[iso] = iso_counts.get(iso, 0) + len(sc.get("atoms", []))
+        if not iso_counts and soft_spot_summary:
+            for entry in soft_spot_summary.get("atom_scores", []):
+                iso = (entry.get("isoform") or "").strip()
+                if iso:
+                    iso_counts[iso] = iso_counts.get(iso, 0) + 1
 
         if iso_counts:
             # Sort: CYPs first
@@ -1128,6 +1219,20 @@ def _render_sidebar() -> dict[str, Any]:
         help="Controls glow intensity for high-risk atoms"
     )
 
+    # ── CDD Vault connection (in-app login; held only in session memory) ──
+    st.sidebar.markdown('<div class="section-header">CDD Vault</div>',
+                        unsafe_allow_html=True)
+    with st.sidebar.expander("🔗  Connect to CDD", expanded=False):
+        st.text_input("Vault ID", key="cdd_vault_id",
+                      help="Numeric Vault ID from your CDD Vault URL.")
+        st.text_input("API token", key="cdd_token", type="password",
+                      help="Generated in CDD account settings. Held only in this "
+                           "session in memory; never written to disk or logged.")
+        if st.session_state.get("cdd_vault_id") and st.session_state.get("cdd_token"):
+            st.caption("✓ Connected for this session — GEN-ID lookup enabled.")
+        else:
+            st.caption("Enter Vault ID + API token to enable GEN-ID lookup.")
+
     # Defaults for unused pipelines
     bt_type   = "allHuman"
     dl_device = "cpu"
@@ -1165,7 +1270,8 @@ def main() -> None:
     # Diclofenac — reliable SyGMa substrate, well-covered aromatic + N-H rules
     DEFAULT_SMILES = "O=C(O)Cc1ccccc1Nc1c(Cl)cccc1Cl"
 
-    tab1, tab2 = st.tabs(["✏️  Draw Structure", "⌨️  Paste SMILES"])
+    tab1, tab2, tab3 = st.tabs(
+        ["✏️  Draw Structure", "⌨️  Paste SMILES", "🔗  Fetch from CDD"])
 
     with tab1:
         st.caption("Draw your parent compound. SMILES is captured automatically on each edit.")
@@ -1180,12 +1286,52 @@ def main() -> None:
             label_visibility="collapsed",
         )
 
-    # Prefer text input if it has been changed from the default
-    active_smiles = (
-        smiles_text.strip()
-        if smiles_text.strip() != DEFAULT_SMILES
-        else (smiles_from_ketcher.strip() if smiles_from_ketcher else smiles_text.strip())
-    )
+    with tab3:
+        st.caption("Pull the parent structure straight from CDD Vault by GEN-ID.")
+        _creds_set = bool(st.session_state.get("cdd_vault_id")
+                          and st.session_state.get("cdd_token"))
+        if not _creds_set:
+            st.info("Connect to CDD in the sidebar (Vault ID + API token) to enable lookup.")
+        _gc, _bc = st.columns([3, 1])
+        with _gc:
+            gen_id = st.text_input("GEN-ID", key="cdd_gen_id",
+                                   placeholder="e.g. GEN-0016770",
+                                   label_visibility="collapsed")
+        with _bc:
+            _fetch = st.button("Fetch", use_container_width=True, disabled=not _creds_set)
+        if _fetch and gen_id.strip():
+            try:
+                with st.spinner(f"Looking up {gen_id.strip()} in CDD Vault…"):
+                    _smi, _matched = fetch_smiles_by_name(
+                        gen_id, st.session_state["cdd_vault_id"],
+                        st.session_state["cdd_token"])
+                st.session_state["cdd_smiles"] = _smi
+                st.session_state["cdd_matched_name"] = _matched
+                st.success(f"✓ Retrieved {_matched} from CDD.")
+            except CDDError as _e:
+                st.error(str(_e))
+            except Exception as _e:  # noqa: BLE001
+                st.error(f"CDD lookup failed: {_e}")
+        if st.session_state.get("cdd_smiles"):
+            st.markdown(
+                f'**Fetched ({st.session_state.get("cdd_matched_name","")}):** '
+                f'`{st.session_state["cdd_smiles"]}`')
+            if st.button("Clear CDD structure"):
+                st.session_state.pop("cdd_smiles", None)
+                st.session_state.pop("cdd_matched_name", None)
+
+    # Resolve the active SMILES: a freshly typed string wins; else a
+    # CDD-fetched structure; else the Ketcher drawing; else the text box.
+    _cdd_smiles = st.session_state.get("cdd_smiles", "").strip()
+    _typed = smiles_text.strip()
+    if _typed and _typed not in (DEFAULT_SMILES, _cdd_smiles):
+        active_smiles = _typed
+    elif _cdd_smiles:
+        active_smiles = _cdd_smiles
+    elif smiles_from_ketcher:
+        active_smiles = smiles_from_ketcher.strip()
+    else:
+        active_smiles = _typed
 
     # ── Run button ─────────────────────────────────────────────────────
     st.markdown("")
@@ -1196,15 +1342,15 @@ def main() -> None:
             "⚗  Run Prediction",
             use_container_width=True,
             disabled=not backend_online,
-            help="Requires the FastAPI backend on port 8000" if not backend_online
+            help=f"Requires the FastAPI backend on port {_BACKEND_PORT}" if not backend_online
                  else "Run all enabled prediction pipelines",
         )
 
     with info_col:
         if not backend_online:
             st.warning(
-                "Backend is offline. Start it with: "
-                "`uvicorn app.main:app --reload --port 8000`",
+                f"Backend is offline. Start it with: "
+                f"`uvicorn app.main:app --reload --port {_BACKEND_PORT}`",
                 icon="⚠️",
             )
         elif active_smiles:
@@ -1242,22 +1388,21 @@ def main() -> None:
 
             with st.spinner("Running prediction pipelines — this may take 30–120 s…"):
                 try:
-                    resp = requests.post(PREDICT_URL, json=payload, timeout=300)
-                    resp.raise_for_status()
-                    result = resp.json()
-                    st.session_state["last_result"] = result
-                    st.session_state["last_smiles"]  = active_smiles
-                    st.session_state["last_config"]  = config
-                except requests.exceptions.HTTPError as exc:
-                    try:
-                        detail = exc.response.json().get("detail", str(exc))
-                    except Exception:
-                        detail = str(exc)
-                    st.error(f"Prediction failed (HTTP {exc.response.status_code}): {detail}")
-                    st.stop()
-                except requests.exceptions.RequestException as exc:
+                    resp = _http_post(PREDICT_URL, json=payload, timeout=300)
+                except Exception as exc:
                     st.error(f"Network error: {exc}")
                     st.stop()
+                if resp.status_code != 200:
+                    try:
+                        detail = resp.json().get("detail", resp.text[:300])
+                    except Exception:
+                        detail = resp.text[:300]
+                    st.error(f"Prediction failed (HTTP {resp.status_code}): {detail}")
+                    st.stop()
+                result = resp.json()
+                st.session_state["last_result"] = result
+                st.session_state["last_smiles"]  = active_smiles
+                st.session_state["last_config"]  = config
 
         result      = st.session_state["last_result"]
         used_smiles = st.session_state.get("last_smiles", active_smiles)
@@ -1318,6 +1463,7 @@ def main() -> None:
                 metabolites = metabolites,
                 scheme    = used_config.get("colour_scheme", "risk"),
                 alpha_max = used_config.get("alpha_max", 0.70),
+                soft_spot_summary = result.get("soft_spot_summary", {}),
             )
 
         with col_right:

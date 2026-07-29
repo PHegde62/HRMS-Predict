@@ -11,3 +11,6 @@ data/biotransformer/*.jar
 .vscode/
 .idea/
 .streamlit/secrets.toml
+
+gen_compounds.local.json
+_logbook_stage/

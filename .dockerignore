@@ -1,0 +1,29 @@
+# Keep the image lean and keep confidential data OUT of the build.
+**/__pycache__/
+**/*.pyc
+.git/
+.venv/
+venv/
+*.egg-info/
+
+# Confidential / local-only data — must never enter the image
+gen_compounds.local.json
+*.local.json
+*.bak
+*.pdf
+*.pptx
+*.docx
+
+# Docs & summaries may contain secrets (passwords, embargo notes)
+docs/
+
+# Benchmark artifacts & scratch scripts
+benchmark/results/
+diag.py
+fix_oselta.py
+runtime_benchmark.py
+test_batch.py
+streamlit_report_button.py
+
+# Streamlit secrets
+.streamlit/secrets.toml

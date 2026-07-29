@@ -1,0 +1,28 @@
+# Controls what `gcloud run deploy --source .` uploads to Cloud Build.
+# CRITICAL: keep confidential GEN structures and internal docs out of the upload.
+.git/
+.gitignore
+**/__pycache__/
+**/*.pyc
+.venv/
+venv/
+
+# Confidential / local-only data
+gen_compounds.local.json
+*.local.json
+*.bak
+*.pdf
+*.pptx
+*.docx
+
+# Internal docs / summaries (may contain passwords, embargo notes)
+docs/
+
+# Benchmarks & scratch
+benchmark/results/
+diag.py
+fix_oselta.py
+runtime_benchmark.py
+test_batch.py
+streamlit_report_button.py
+.streamlit/secrets.toml

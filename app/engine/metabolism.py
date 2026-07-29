@@ -26,9 +26,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import torch
+try:
+    import torch  # optional: only used by the DL (MetaTrans/Meta-Predictor) pipeline
+except Exception:  # pragma: no cover - heavy optional dependency
+    torch = None
 from rdkit import Chem
-from rdkit.Chem import Descriptors, rdMolDescriptors
+from rdkit.Chem import AllChem, Descriptors, rdMolDescriptors
 
 # SyGMa is installed from git+https://github.com/3D-e-Chem/sygma.git
 import sygma
@@ -339,12 +342,16 @@ class SyGMaPipeline:
     Wraps the 3D-e-Chem/sygma library to generate Phase I and Phase II
     metabolites via sequential SMARTS reaction transforms.
 
-    SyGMa Scenario API expects string rule names, not rule objects:
-        sygma.Scenario([['phase1', cycles], ['phase2', cycles]])
+Dual-Track Execution Engine
+    ---------------------------
+    Track 1 (Sequential): Phase I on the parent, then Phase II on each Phase I
+        product -- oxidations and sequential Phase I+II conjugates (+192 Da).
+    Track 2 (Direct Phase II Bypass): Phase II applied DIRECTLY to the raw parent
+        -- direct parent O-/N-glucuronidation and sulfation (+176.0321 Da) that
+        Track 1 structurally cannot reach.
 
-    The rule tree is built as follows:
-      1. Phase I rules applied to parent → Phase I pool.
-      2. Phase II rules applied to each Phase I metabolite → Phase II pool.
+    The two trees are merged and deduplicated on RDKit canonical SMILES
+    (Chem.CanonSmiles), and direct parent glucuronides are tagged explicitly.
 
     Parameters
     ----------
@@ -365,71 +372,159 @@ class SyGMaPipeline:
         rules_dir = os.path.join(os.path.dirname(sygma.__file__), "rules")
         return os.path.join(rules_dir, f"{phase}.txt")
 
-    def run(self, parent_smiles: str) -> list[MetaboliteRecord]:
-        parent_mol = Chem.MolFromSmiles(parent_smiles)
-        if parent_mol is None:
-            raise ValueError(f"SyGMaPipeline: invalid SMILES {parent_smiles!r}")
+    # Exact mass of a glucuronic-acid conjugation (C6H8O6) — the signature of a
+    # direct parent O-/N-glucuronide produced by the Track 2 bypass.
+    _GLUCURONIDE_DELTA: float = 176.0321
 
-        records: list[MetaboliteRecord] = []
+    # ------------------------------------------------------------------
+    # Track 1 — Sequential Pathway (Phase I -> Phase II)
+    # ------------------------------------------------------------------
+    def _track1_sequential(self, parent_mol):
+        """Phase I (phase1_cycles) on the parent, then Phase II (phase2_cycles) on
+        each Phase I product. Captures oxidations and sequential Phase I+II
+        conjugates (e.g. hydroxylation + glucuronidation, +192 Da).
+        Returns a list of (metabolite_mol, sygma_pathway_label, phase) tuples."""
+        out = []
         parent_smi = Chem.MolToSmiles(parent_mol)
 
-        p1_path = self._rule_path("phase1")
-        p2_path = self._rule_path("phase2")
+        scenario_p1 = sygma.Scenario([[sygma.ruleset["phase1"], self.phase1_cycles]])
+        tree_p1 = scenario_p1.run(parent_mol)
+        tree_p1.calc_scores()
 
-        # ── Phase I ──
-        # tree.to_list() returns list of dicts:
-        #   {SyGMa_metabolite: Mol, SyGMa_pathway: str, SyGMa_score: float, parent: Mol}
-        # First entry is always the parent itself (SyGMa_score == 1.0).
-        try:
-            scenario_p1 = sygma.Scenario([[p1_path, self.phase1_cycles]])
-            tree_p1 = scenario_p1.run(parent_mol)
-            tree_p1.calc_scores()
-        except Exception as exc:
-            log.warning("SyGMa Phase I scenario failed: %s", exc)
-            return records
-
-        phase1_mols: list[tuple[Chem.Mol, str]] = []
+        phase1_mols = []
         for entry in tree_p1.to_list():
-            met_mol = entry.get("SyGMa_metabolite")
-            if met_mol is None:
+            mol = entry.get("SyGMa_metabolite")
+            if mol is None:
                 continue
             try:
-                met_smi = Chem.MolToSmiles(met_mol)
+                smi = Chem.MolToSmiles(mol)
             except Exception:
                 continue
-            if met_smi == parent_smi:
-                continue  # skip the parent entry
+            # Skip the parent passthrough: applying Phase II to the unchanged parent
+            # is Track 2's job, so excluding it keeps direct-parent conjugates unique
+            # to Track 2 and correctly tagged.
+            if smi == parent_smi:
+                continue
             label = (entry.get("SyGMa_pathway") or "").strip().rstrip(";").strip()
-            rec = _mol_to_record(met_mol, source="sygma", label=label, phase=1)
-            if rec:
-                records.append(rec)
-                phase1_mols.append((met_mol, met_smi))
+            out.append((mol, label, 1))
+            phase1_mols.append(mol)
 
-        # ── Phase II applied to each Phase I metabolite ──
-        for p1_mol, p1_smi in phase1_mols:
+        for p1_mol in phase1_mols:
             try:
-                scenario_p2 = sygma.Scenario([[p2_path, self.phase2_cycles]])
+                scenario_p2 = sygma.Scenario([[sygma.ruleset["phase2"], self.phase2_cycles]])
                 tree_p2 = scenario_p2.run(p1_mol)
                 tree_p2.calc_scores()
             except Exception as exc:
-                log.debug("SyGMa Phase II scenario failed for %s: %s", p1_smi, exc)
+                log.debug("Track 1: Phase II on a Phase I product failed: %s", exc)
                 continue
             for entry in tree_p2.to_list():
-                met_mol = entry.get("SyGMa_metabolite")
-                if met_mol is None:
+                mol = entry.get("SyGMa_metabolite")
+                if mol is None:
                     continue
+                label = (entry.get("SyGMa_pathway") or "").strip().rstrip(";").strip()
+                out.append((mol, label, 2))
+        return out
+
+    # ------------------------------------------------------------------
+    # Track 2 — Direct Phase II Bypass (Phase II applied to the raw parent)
+    # ------------------------------------------------------------------
+    def _track2_direct_phase2(self, parent_mol):
+        """Run a Phase II scenario DIRECTLY on the raw parent, bypassing Phase I:
+            direct_phase2_scenario = sygma.Scenario([[sygma.ruleset['phase2'], 1]])
+        This forces SyGMa to enumerate direct parent O-glucuronidation,
+        N-glucuronidation and sulfation that the sequential Track 1 cannot reach.
+        Returns a list of (metabolite_mol, sygma_pathway_label, phase) tuples."""
+        out = []
+        direct_phase2_scenario = sygma.Scenario([[sygma.ruleset["phase2"], 1]])
+        tree = direct_phase2_scenario.run(parent_mol)
+        tree.calc_scores()
+        for entry in tree.to_list():
+            mol = entry.get("SyGMa_metabolite")
+            if mol is None:
+                continue
+            label = (entry.get("SyGMa_pathway") or "").strip().rstrip(";").strip()
+            out.append((mol, label, 2))
+        return out
+
+    # ------------------------------------------------------------------
+    # Dual-Track Execution Engine
+    # ------------------------------------------------------------------
+    def run(self, parent_smiles: str) -> list[MetaboliteRecord]:
+        """Dual-Track Execution Engine.
+
+        Track 1 (Sequential): Phase I -> Phase II. Oxidations + sequential
+            Phase I+II conjugates (e.g. ox + glucuronide, +192 Da).
+        Track 2 (Direct Phase II Bypass): Phase II applied directly to the parent.
+            Direct parent O-/N-glucuronidation and sulfation (+176.0321 Da) that
+            Track 1 structurally cannot produce.
+
+        The two trees are merged and deduplicated using RDKit canonical SMILES
+        (Chem.CanonSmiles) as dictionary keys, so no structure is double-counted.
+        Track 1 is ingested first (sequential provenance wins ties); direct parent
+        glucuronides are unique to Track 2 and are tagged explicitly."""
+        parent_mol = Chem.MolFromSmiles(parent_smiles)
+        if parent_mol is None:
+            raise ValueError(f"SyGMaPipeline: invalid SMILES {parent_smiles!r}")
+        parent_smi = Chem.MolToSmiles(parent_mol)
+        try:
+            parent_mass = Descriptors.ExactMolWt(parent_mol)
+        except Exception:
+            parent_mass = 0.0
+
+        # Run both tracks independently (one failing must not lose the other)
+        try:
+            track1 = self._track1_sequential(parent_mol)
+        except Exception as exc:
+            log.warning("SyGMa Track 1 (sequential Phase I->II) failed: %s", exc)
+            track1 = []
+        try:
+            track2 = self._track2_direct_phase2(parent_mol)
+        except Exception as exc:
+            log.warning("SyGMa Track 2 (direct Phase II bypass) failed: %s", exc)
+            track2 = []
+
+        # Merge + deduplicate on canonical SMILES
+        merged = {}
+
+        def _ingest(items, track):
+            for mol, pathway, phase in items:
                 try:
-                    met_smi = Chem.MolToSmiles(met_mol)
+                    smi = Chem.MolToSmiles(mol)
                 except Exception:
                     continue
-                if met_smi == p1_smi:
+                if not smi or smi == parent_smi:
                     continue
-                label2 = (entry.get("SyGMa_pathway") or "").strip().rstrip(";").strip()
-                rec2 = _mol_to_record(met_mol, source="sygma", label=label2, phase=2)
-                if rec2:
-                    records.append(rec2)
+                try:
+                    key = Chem.CanonSmiles(smi)
+                except Exception:
+                    key = smi
+                if key in merged:
+                    continue  # first-writer-wins (Track 1 ingested first)
+                label = pathway
+                if track == 2:
+                    try:
+                        delta = Descriptors.ExactMolWt(mol) - parent_mass
+                    except Exception:
+                        delta = 0.0
+                    if abs(delta - self._GLUCURONIDE_DELTA) < 0.01:
+                        label = "Direct Parent Phase II Glucuronidation (+176.0321 Da)"
+                    else:
+                        label = f"Direct Parent Phase II: {pathway or 'conjugation'}"
+                rec = _mol_to_record(mol, source="sygma", label=label, phase=phase)
+                if rec:
+                    merged[key] = rec
 
-        log.info("SyGMaPipeline: %d Phase I + Phase II metabolites", len(records))
+        _ingest(track1, 1)
+        _ingest(track2, 2)
+
+        records = list(merged.values())
+        n_direct = sum(1 for r in records
+                       if r.reaction_label.startswith("Direct Parent Phase II"))
+        log.info(
+            "SyGMaPipeline (dual-track): %d unique metabolites after dedup "
+            "(Track1 raw=%d, Track2 raw=%d; %d direct-parent Phase II conjugates)",
+            len(records), len(track1), len(track2), n_direct,
+        )
         return records
 
 
@@ -1096,6 +1191,260 @@ def _score_ensemble(
 
 
 # ---------------------------------------------------------------------------
+# Local scaffold-specific fragmentation layer (custom, editable)
+# ---------------------------------------------------------------------------
+# Our chemical series (chromanone / isoindolinone / anthranilate scaffold)
+# undergoes recurring, specific cleavages and conjugations that the generic
+# SyGMa rule set does not model.  This layer injects local reaction SMARTS that
+# are applied DIRECTLY to the parent after the rule engines run.
+#
+# Each entry is: (name, reaction_smarts, target_delta)
+#   * name             human-readable pathway label
+#   * reaction_smarts  an AllChem.ReactionFromSmarts transform.  For a cleavage,
+#                      split a bond into H-capped fragments ("...>>A.B"); the
+#                      engine keeps the largest sanitised product fragment.
+#   * target_delta     experimentally observed Da shift the rule is meant to
+#                      reproduce (annotation / QC only).
+#
+# EDIT ME: the exact -121 / -123 / -156 / -105 losses are chemotype-specific and
+# are NOT simple single-bond cleavages of the parent (verified empirically); to
+# reproduce them precisely, paste the bond-cleavage SMARTS taken from the
+# experimental structure proposals into the list below.
+SCAFFOLD_FRAGMENTATION: list[tuple[str, str, float]] = [
+    # -- Methylation / alkylation additions (+14.0157 Da) -- validated exact --
+    ("O-Methylation (carboxyl -> methyl ester)",
+     "[CX3:1](=[OX1:2])[OX2H]>>[CX3:1](=[OX1:2])[OX2]C", 14.0157),
+    ("N-Methylation (aryl secondary amine)",
+     "[c:1][NX3;H1:2][#6:3]>>[c:1][NX3:2]([#6:3])C", 14.0157),
+    ("O-Methylation (phenol)",
+     "[c:1][OX2H:2]>>[c:1][OX2:2]C", 14.0157),
+    # -- Scaffold cleavages (TEMPLATES -- refine SMARTS to hit the exact losses) --
+    ("Anthranilate arm C-N cleavage",
+     "[c:1][NX3:2][CX4:3]>>[c:1][NX3:2].[CX4:3]", -121.0),
+    ("Lactam N-dealkylation",
+     "[CX3:1](=[OX1:2])[NX3:3][CX4:4]>>[CX3:1](=[OX1:2])[NX3:3].[CX4:4]", -156.0),
+]
+
+_COMPILED_FRAG: list[tuple[str, Any, float, str]] = []
+for _frag_name, _frag_sm, _frag_td in SCAFFOLD_FRAGMENTATION:
+    try:
+        _frag_rxn = AllChem.ReactionFromSmarts(_frag_sm)
+    except Exception:
+        _frag_rxn = None
+    _COMPILED_FRAG.append((_frag_name, _frag_rxn, _frag_td, _frag_sm))
+
+
+def generate_scaffold_fragments(parent_smiles: str,
+                                min_heavy_atoms: int = 5) -> list[MetaboliteRecord]:
+    """
+    Apply the local SCAFFOLD_FRAGMENTATION reaction SMARTS directly to the parent.
+
+    For each rule the parent is matched; if the transform fires, open valencies
+    are cleaned (sanitisation), the largest product fragment is retained, and its
+    exact monoisotopic mass and signed delta vs parent are recorded.  Cleavage
+    products are tagged 'Scaffold-Specific Fragment Cleavage'; additions
+    (e.g. +14.0157 methylation) are tagged 'Scaffold-Specific Methylation/Addition'.
+
+    Returns a list of MetaboliteRecord, deduplicated on canonical SMILES.
+    """
+    parent_mol = Chem.MolFromSmiles(parent_smiles)
+    if parent_mol is None:
+        return []
+    parent_mass = Descriptors.ExactMolWt(parent_mol)
+    parent_smi = Chem.MolToSmiles(parent_mol)
+
+    out: dict[str, MetaboliteRecord] = {}
+    for name, rxn, target_delta, _sm in _COMPILED_FRAG:
+        if rxn is None:
+            continue
+        try:
+            product_sets = rxn.RunReactants((parent_mol,))
+        except Exception:
+            continue
+        for product_set in product_sets:
+            best = None
+            for prod in product_set:
+                try:
+                    Chem.SanitizeMol(prod)
+                except Exception:
+                    continue
+                for piece in Chem.GetMolFrags(prod, asMols=True, sanitizeFrags=False):
+                    try:
+                        Chem.SanitizeMol(piece)
+                    except Exception:
+                        continue
+                    if piece.GetNumHeavyAtoms() < min_heavy_atoms:
+                        continue
+                    if best is None or Descriptors.ExactMolWt(piece) > Descriptors.ExactMolWt(best):
+                        best = piece
+            if best is None:
+                continue
+            try:
+                smi = Chem.MolToSmiles(best)
+            except Exception:
+                continue
+            if not smi or smi == parent_smi:
+                continue
+            try:
+                key = Chem.CanonSmiles(smi)
+            except Exception:
+                key = smi
+            if key in out:
+                continue
+            delta = Descriptors.ExactMolWt(best) - parent_mass
+            # Gate: only emit when the rule reproduces its declared target shift
+            # (additions to 0.05 Da; cleavages to 2 Da). This keeps the layer
+            # precise — unrefined cleavage templates stay silent until correct
+            # SMARTS are supplied.
+            tol = 0.05 if target_delta >= 0 else 2.0
+            if abs(delta - target_delta) > tol:
+                continue
+            if target_delta >= 0:
+                label = f"Scaffold-Specific Methylation/Addition ({name}, {delta:+.4f} Da)"
+            else:
+                label = f"Scaffold-Specific Fragment Cleavage ({name}, {delta:+.4f} Da)"
+            rec = _mol_to_record(best, source="scaffold_frag", label=label, phase=1)
+            if rec:
+                out[key] = rec
+    return list(out.values())
+
+
+
+# ---------------------------------------------------------------------------
+# DMPK-empirical prioritisation & regioisomer capping
+# ---------------------------------------------------------------------------
+# Replaces the flat 0.200 rule-engine baseline with a confidence score tuned to
+# mass-spec relevance, and caps redundant regioisomers so the screening list is
+# not swamped by theoretical ring-hydroxylation positions that are never seen.
+
+_PRIORITY_HIGH = 0.70
+_PRIORITY_MED = 0.40
+
+
+def _prio_delta(met: dict) -> float:
+    try:
+        return float(met.get("delta_mass", 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _prio_family(met: dict) -> str:
+    """Transformation family used for grouping/scoring. Prefers the human-readable
+    transformation_type (set by the API layer); falls back to the raw label."""
+    s = ((met.get("transformation_type") or "") + " " +
+         (met.get("reaction_label") or "")).lower()
+    if "aromatic hydroxylation" in s:        return "aromatic_hydroxylation"
+    if "aliphatic hydroxylation" in s:       return "aliphatic_hydroxylation"
+    if "benzylic hydroxylation" in s:        return "benzylic_hydroxylation"
+    if "scaffold-specific fragment" in s:    return "scaffold_cleavage"
+    if "glucuron" in s:                      return "glucuronidation"
+    if "sulfat" in s or "sulfon" in s:       return "sulfation"
+    if "methylation" in s and "dealk" not in s and "demethyl" not in s:
+        return "methylation"
+    if "dealkylation" in s or "demethyl" in s: return "dealkylation"
+    if "dehydrogen" in s or "desatur" in s:  return "dehydrogenation"
+    return (met.get("transformation_type") or met.get("reaction_label") or "other"
+            ).lower().split("(")[0].strip()[:24] or "other"
+
+
+def _empirical_confidence(met: dict) -> float:
+    """DMPK-empirical confidence (0-1) by mass-spec relevance."""
+    fam = _prio_family(met)
+    delta = _prio_delta(met)
+    if fam == "glucuronidation":
+        if abs(delta - 176.0321) < 0.05:   return 0.85   # direct parent glucuronide
+        if abs(delta - 192.0270) < 0.05:   return 0.75   # oxidative glucuronide
+        return 0.70
+    if fam == "scaffold_cleavage":         return 0.80   # -121 / -156 ... cleavages
+    if fam == "sulfation":                 return 0.72
+    if fam in ("aliphatic_hydroxylation", "benzylic_hydroxylation"):
+        return 0.60                                       # accessible, unhindered
+    if fam == "dealkylation":              return 0.55
+    if fam == "methylation":               return 0.55
+    if fam == "aromatic_hydroxylation":    return 0.15   # crowded / hindered ring
+    if fam == "dehydrogenation":           return 0.40
+    return 0.30
+
+
+def _prio_accessibility(met: dict) -> float:
+    """Proxy for structural accessibility / model attention, used to rank
+    regioisomers within a group: higher DL confidence and lower SMARTCyp
+    activation energy (more reactive site) rank first."""
+    dl = met.get("dl_confidence", 0.0) or 0.0
+    sc = met.get("smartcyp_scores") or []
+    ea_score = 0.0
+    if sc:
+        best_ea = min((s.get("ea", 999) for s in sc), default=999)
+        ea_score = max(0.0, (100.0 - best_ea) / 100.0)
+    return 0.5 * float(dl) + ea_score
+
+
+def prioritize_predictions(metabolite_list: list[dict],
+                           max_isomers_per_group: int = 3,
+                           max_conjugates_per_class: int = 3) -> list[dict]:
+    """
+    DMPK-empirical prioritisation and regioisomer capping.
+
+    1. Cap regioisomers: metabolites sharing a transformation family AND the same
+       nominal mass shift (e.g. 8 aromatic ring-hydroxylation positions, all
+       +15.9949 Da) are grouped; only the top `max_isomers_per_group` by
+       accessibility / model attention survive, discarding redundant position
+       isomers that clutter the list.
+    2. Dynamic empirical weighting: each survivor is rescored 0-1 by mass-spec
+       relevance (direct +176 glucuronide -> 0.85; scaffold cleavage -> 0.80;
+       accessible aliphatic oxidation -> 0.60; hindered aromatic hydroxylation
+       -> 0.15; ...), replacing the flat 0.200 baseline.
+    3. Sort strictly by the new confidence score, descending.
+
+    Returns a new ordered, capped list; input dicts are not mutated.
+    """
+    from collections import defaultdict
+    work = [dict(m) for m in metabolite_list]          # copy — do not mutate input
+
+    # Conjugate classes are collapsed across mass-variants so theoretical
+    # glucuronide/sulfate isomers (and SyGMa +/-2H mass artefacts) do not flood
+    # the screening list; oxidations stay grouped by exact mass so each
+    # position-isomer family is capped independently.
+    conj_classes = {"glucuronidation", "sulfation"}
+    groups: dict[tuple, list[dict]] = defaultdict(list)
+    for met in work:
+        fam = _prio_family(met)
+        key = (fam,) if fam in conj_classes else (fam, round(_prio_delta(met)))
+        groups[key].append(met)
+
+    kept: list[dict] = []
+    for key, members in groups.items():
+        members.sort(key=_prio_accessibility, reverse=True)
+        if len(key) == 1:  # conjugate class — keep distinct masses, capped
+            seen_mass: set[int] = set()
+            picked: list[dict] = []
+            for m in members:
+                nd = round(_prio_delta(m))
+                if nd in seen_mass:
+                    continue
+                seen_mass.add(nd)
+                picked.append(m)
+                if len(picked) >= max_conjugates_per_class:
+                    break
+            kept.extend(picked)
+        else:
+            kept.extend(members[:max_isomers_per_group])
+
+    for met in kept:
+        score = _empirical_confidence(met)
+        met["ensemble_score"] = round(score, 3)
+        met["confidence_label"] = (
+            "High Confidence" if score >= _PRIORITY_HIGH
+            else "Medium Confidence" if score >= _PRIORITY_MED
+            else "Low Confidence"
+        )
+
+    kept.sort(key=lambda m: m.get("ensemble_score", 0.0), reverse=True)
+    return kept
+
+
+
+# ---------------------------------------------------------------------------
 # Public aggregate entry point
 # ---------------------------------------------------------------------------
 
@@ -1113,6 +1462,7 @@ def aggregate_metabolism(
     sygma_phase1_cycles: int = 1,
     sygma_phase2_cycles: int = 1,
     smartcyp_ea_cutoff: float = 95.0,
+    run_scaffold_frag: bool = True,
     ensemble_weights: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """
@@ -1248,6 +1598,15 @@ def aggregate_metabolism(
         except Exception:
             log.exception("Pipeline D (SMARTCyp) failed — continuing")
 
+    # ── Custom scaffold-specific fragmentation layer (Pipeline E) ──
+    if run_scaffold_frag:
+        try:
+            frag_records = generate_scaffold_fragments(canonical_parent)
+            stats["scaffold_frag_count"] = len(frag_records)
+            all_records.extend(frag_records)
+        except Exception:
+            log.exception("Scaffold fragmentation layer failed — continuing")
+
     # ── Annotate all records with mass spec data ──
     for rec in all_records:
         tracker.annotate(rec)
@@ -1262,13 +1621,30 @@ def aggregate_metabolism(
     # ── Soft-spot summary ──
     all_soft_atoms: set[int] = set()
     rule_counts: dict[str, int] = {}
+    atom_best: dict[int, tuple[float, str]] = {}  # atom -> (score, isoform)
     for rec in scored:
         all_soft_atoms.update(rec.soft_spot_atoms)
         for match in rec.smartcyp_scores:
             rule = match.get("rule", "")
             rule_counts[rule] = rule_counts.get(rule, 0) + 1
+            try:
+                ea = float(match.get("ea", 99.0))
+            except (TypeError, ValueError):
+                ea = 99.0
+            score = max(0.0, min(1.0, (95.0 - ea) / 25.0))
+            iso = match.get("isoform", "")
+            for a in match.get("atoms", []):
+                if a not in atom_best or score > atom_best[a][0]:
+                    atom_best[a] = (score, iso)
 
     top_rules = sorted(rule_counts, key=lambda r: rule_counts[r], reverse=True)[:5]
+    # Per-atom soft-spot scores, computed from the full set BEFORE any display
+    # capping/prioritisation, so the soft-spot map is independent of which
+    # metabolites are shown in the ranked table.
+    soft_spot_atom_scores = [
+        {"atom_idx": a, "score": round(sc, 4), "isoform": iso}
+        for a, (sc, iso) in sorted(atom_best.items())
+    ]
 
     # ── Build output matrix ──
     output: dict[str, Any] = {
@@ -1299,6 +1675,7 @@ def aggregate_metabolism(
         "soft_spot_summary": {
             "top_atoms": sorted(all_soft_atoms),
             "top_rules": top_rules,
+            "atom_scores": soft_spot_atom_scores,
         },
         "pipeline_stats": stats,
     }
