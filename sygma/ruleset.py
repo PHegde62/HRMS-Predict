@@ -9,9 +9,13 @@ phase2
     Phase 2 metabolism rules include severaly conjugation reaction,
     i.e. with glucuronyl, sulfate, methyl and acetyl
 """
-import pkg_resources
+import os
+
+# Locate the bundled rule files relative to this file so SyGMa works without
+# setuptools/pkg_resources (which isn't present in lean/newer Python envs).
+_RULES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rules")
 
 ruleset = {
-    "phase1": pkg_resources.resource_filename('sygma', "rules/phase1.txt"),
-    "phase2": pkg_resources.resource_filename('sygma', "rules/phase2.txt"),
+    "phase1": os.path.join(_RULES_DIR, "phase1.txt"),
+    "phase2": os.path.join(_RULES_DIR, "phase2.txt"),
 }
