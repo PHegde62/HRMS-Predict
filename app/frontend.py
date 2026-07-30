@@ -25,8 +25,16 @@ from __future__ import annotations
 
 import io
 import os
+import sys
 import time
 from typing import Any
+
+# `streamlit run app/frontend.py` puts the app/ folder on sys.path, but NOT the
+# repo root. Add the repo root so the in-process engine import (`from app.main
+# import app`) and the vendored `sygma` package (at repo-root ./sygma) resolve.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 import pandas as pd
 import requests
