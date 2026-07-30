@@ -682,7 +682,9 @@ def _check_backend_health() -> bool:
             _MODE = "inprocess"
             return True
     except Exception:
-        pass
+        import traceback
+        globals()["_IP_ERR"] = traceback.format_exc()
+        traceback.print_exc()
     _MODE = None
     return False
 
@@ -1353,6 +1355,9 @@ def main() -> None:
                 f"`uvicorn app.main:app --reload --port {_BACKEND_PORT}`",
                 icon="⚠️",
             )
+            if globals().get("_IP_ERR"):
+                with st.expander("In-process engine error (diagnostic)", expanded=True):
+                    st.code(globals()["_IP_ERR"])
         elif active_smiles:
             st.markdown(
                 f'<div style="padding-top:0.5rem;">'
