@@ -24,6 +24,7 @@ Run
 from __future__ import annotations
 
 import io
+import json
 import os
 import sys
 import time
@@ -785,6 +786,20 @@ def _build_excel_bytes(df: pd.DataFrame, parent: dict[str, Any]) -> bytes:
     return buffer.getvalue()
 
 
+@st.cache_data(show_spinner=False)
+def _build_pdf_bytes(df: pd.DataFrame, pm: pd.DataFrame, compound_name: str,
+                     top_n: int, atom_scores_json: str) -> bytes:
+    """Build the professional PDF report (cover + colour-coded soft-spot map +
+    top-N metabolite cards + summary table) and return the bytes. Cached so it
+    only regenerates when inputs change."""
+    from generate_report import build_report_from_frames
+    atom_scores = json.loads(atom_scores_json) if atom_scores_json else None
+    return build_report_from_frames(
+        df, pm, compound_name=compound_name or "Predicted Compound",
+        top_n=int(top_n), atom_scores=atom_scores,
+    )
+
+
 def _fetch_soft_spot_svg(
     smiles: str,
     metabolites: list[dict[str, Any]],
@@ -1026,6 +1041,8 @@ def _render_results_table(
     df: pd.DataFrame,
     parent: dict[str, Any],
     stats: dict[str, Any],
+    soft_spot_summary: dict[str, Any] | None = None,
+    compound_name: str = "",
 ) -> None:
     st.markdown('<div class="section-header">LC-MS Screening Target List</div>',
                 unsafe_allow_html=True)
@@ -1090,7 +1107,37 @@ def _render_results_table(
     )
 
     st.markdown("")
-    dl1, dl2, dl3 = st.columns([2, 2, 3])
+    pdf_top_n = st.number_input(
+        "Metabolites in PDF report",
+        min_value=5, max_value=30, value=12, step=1,
+        help="Number of top-ranked metabolites to include in the PDF report (10–15 recommended).",
+    )
+    dlp, dl1, dl2, dl3 = st.columns([2, 2, 2, 3])
+    with dlp:
+        try:
+            _pa = parent.get("adducts", {})
+            _pm = pd.DataFrame(
+                [
+                    ["Parent SMILES",             parent.get("smiles", "")],
+                    ["Molecular Formula",         parent.get("molecular_formula", "")],
+                    ["Neutral Monoisotopic Mass", parent.get("neutral_mass", "")],
+                    ["[M+H]+ m/z",                _pa.get("mplus_h", "")],
+                    ["[M-H]- m/z",                _pa.get("mminus_h", "")],
+                ],
+                columns=["Parameter", "Value"],
+            )
+            _atom_scores_json = json.dumps((soft_spot_summary or {}).get("atom_scores", []))
+            with st.spinner("Building PDF report…"):
+                _pdf = _build_pdf_bytes(df, _pm, compound_name, int(pdf_top_n), _atom_scores_json)
+            st.download_button(
+                label="⬇  PDF report",
+                data=_pdf,
+                file_name="hrms_predict_report.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            st.caption(f"PDF unavailable: {exc}")
     with dl1:
         st.download_button(
             label="⬇  Export .xlsx",
@@ -1480,7 +1527,11 @@ def main() -> None:
             )
 
         with col_right:
-            _render_results_table(df, parent, stats)
+            _render_results_table(
+                df, parent, stats,
+                soft_spot_summary=result.get("soft_spot_summary", {}),
+                compound_name=st.session_state.get("cdd_matched_name", ""),
+            )
 
     else:
         st.markdown(

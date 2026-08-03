@@ -317,7 +317,7 @@ def section_cover(story, styles, compound_name, parent_smi, parent_metrics, n_pr
     story.append(PageBreak())
 
 
-def section_softspot(story, styles, parent_smi, df_top):
+def section_softspot(story, styles, parent_smi, df_top, atom_scores=None):
     """
     Page 2: parent structure with ALL soft-spot atoms highlighted,
     colour-coded by enzyme class. Plus legend.
@@ -333,12 +333,22 @@ def section_softspot(story, styles, parent_smi, df_top):
 
     # Build per-atom → enzyme mapping (highest rank wins)
     atom_enzyme = {}
-    for _, row in df_top.iterrows():
-        atoms = parse_soft_spot_atoms(row.get("Soft-Spot Atoms",""))
-        enz   = str(row.get("Enzyme",""))
-        for a in atoms:
-            if a not in atom_enzyme:  # highest-ranked row comes first
-                atom_enzyme[a] = enz
+    # Prefer the authoritative soft_spot_summary atom_scores (per-atom isoform);
+    # fall back to per-metabolite Soft-Spot Atoms columns.
+    if atom_scores:
+        for entry in atom_scores:
+            idx = entry.get("atom_idx")
+            if idx is None:
+                continue
+            iso = (entry.get("isoform") or "").strip()
+            atom_enzyme[int(idx)] = iso if iso else "DEFAULT"
+    if not atom_enzyme:
+        for _, row in df_top.iterrows():
+            atoms = parse_soft_spot_atoms(row.get("Soft-Spot Atoms",""))
+            enz   = str(row.get("Enzyme",""))
+            for a in atoms:
+                if a not in atom_enzyme:  # highest-ranked row comes first
+                    atom_enzyme[a] = enz
 
     # Group atoms by enzyme for multi-colour rendering
     # RDKit supports per-atom colours in DrawMolecule
@@ -702,6 +712,40 @@ def generate_report(xlsx_path, compound_name=None, top_n=12, out_path=None):
     doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
     print(f"Done! Report saved to: {out_path}")
     return out_path
+
+
+def build_report_from_frames(df, pm, compound_name="Predicted Compound",
+                             top_n=12, atom_scores=None) -> bytes:
+    """Build the PDF from in-memory frames (Streamlit app) and return PDF bytes."""
+    df = df.copy()
+    parent_smi = ""
+    try:
+        if "Parameter" in pm.columns:
+            pm_s = pm[pm["Parameter"].astype(str).str.contains("SMILES", case=False, na=False)]
+            if not pm_s.empty:
+                parent_smi = str(pm_s.iloc[0]["Value"])
+    except Exception:
+        pass
+    if "Rank" in df.columns:
+        try:
+            df = df.sort_values("Rank").reset_index(drop=True)
+        except Exception:
+            pass
+    df_top = df.head(int(top_n)).reset_index(drop=True)
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4, topMargin=32*mm, bottomMargin=18*mm,
+        leftMargin=MARGIN, rightMargin=MARGIN,
+        title=f"HRMS-Predict Report: {compound_name}", author="HRMS-Predict",
+    )
+    styles = build_styles()
+    story = []
+    section_cover(story, styles, compound_name, parent_smi, pm, len(df))
+    section_softspot(story, styles, parent_smi, df_top, atom_scores=atom_scores)
+    section_metabolite_table(story, styles, df_top, parent_smi)
+    section_summary_table(story, styles, df_top)
+    doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
+    return buf.getvalue()
 
 
 if __name__ == "__main__":
