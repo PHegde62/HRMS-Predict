@@ -179,10 +179,11 @@ def score_to_likelihood(score, phase):
 
 
 # ── ReportLab page template ───────────────────────────────────────────────────
-NAVY   = colors.Color(0.10, 0.19, 0.34)
-TEAL   = colors.Color(0.11, 0.62, 0.46)
-LGRAY  = colors.Color(0.95, 0.95, 0.95)
-MGRAY  = colors.Color(0.80, 0.80, 0.80)
+# Genesis Therapeutics brand palette
+NAVY   = colors.Color(0.0, 0.2745, 1.0)      # Genesis Blue  #0046FF (core)
+TEAL   = colors.Color(0.0, 0.7843, 0.5216)   # AI green      #00C885 (accent, sparing)
+LGRAY  = colors.Color(0.9608, 0.9647, 0.9686)  # neutral #F5F6F7
+MGRAY  = colors.Color(0.8471, 0.8471, 0.8471)  # Integration #D8D8D8
 WHITE  = colors.white
 BLACK  = colors.black
 

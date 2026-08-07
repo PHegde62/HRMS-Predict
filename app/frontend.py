@@ -120,7 +120,7 @@ def _inject_css() -> None:
     st.markdown(
         """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap');
 
 /* ══════════════════════════════════════════════════════
    SIDEBAR — fixed width, no label clipping
@@ -155,8 +155,8 @@ def _inject_css() -> None:
     padding: 0 !important;
     font-size: 0.80rem !important;
     font-weight: 600 !important;
-    font-family: 'Plus Jakarta Sans', sans-serif !important;
-    color: #2C5282 !important;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+    color: #3A3E45 !important;
     white-space: normal !important;
     overflow: visible !important;
     flex: 1 !important;
@@ -178,18 +178,18 @@ def _inject_css() -> None:
     height: 0 !important;
 }
 [data-testid="stTabs"] [data-baseweb="tab-list"] {
-    background: #EBF4FF !important;
+    background: #EAF0FF !important;
     border-radius: 8px !important;
     padding: 4px !important;
     gap: 3px !important;
-    border: 1px solid #BEE3F8 !important;
+    border: 1px solid #D8D8D8 !important;
 }
 [data-testid="stTabs"] [data-baseweb="tab"] {
     border-radius: 6px !important;
-    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif !important;
     font-weight: 500 !important;
     font-size: 0.84rem !important;
-    color: #718096 !important;
+    color: #6B7078 !important;
     background: transparent !important;
     border: none !important;
     padding: 0.32rem 0.85rem !important;
@@ -198,17 +198,17 @@ def _inject_css() -> None:
 }
 [data-testid="stTabs"] [aria-selected="true"] {
     background: #FFFFFF !important;
-    color: #2B6CB0 !important;
+    color: #0046FF !important;
     font-weight: 600 !important;
-    box-shadow: 0 1px 4px rgba(43,108,176,0.18) !important;
+    box-shadow: 0 1px 4px rgba(29,31,36,0.18) !important;
 }
 
 /* ══════════════════════════════════════════════════════
    DISABLED PIPELINE CARDS
    ══════════════════════════════════════════════════════ */
 .pipeline-unavailable {
-    background: #F7FAFC;
-    border: 1px solid #E2E8F0;
+    background: #F5F6F7;
+    border: 1px solid #D8D8D8;
     border-radius: 7px;
     padding: 0.42rem 0.6rem;
     margin-bottom: 0.35rem;
@@ -217,50 +217,50 @@ def _inject_css() -> None:
     gap: 0.4rem;
 }
 .pipeline-unavailable-label {
-    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
     font-size: 0.82rem;
-    color: #A0AEC0;
+    color: #9AA0A6;
     text-decoration: line-through;
     flex: 1;
 }
 .pipeline-unavailable-badge {
     font-size: 0.62rem;
-    color: #A0AEC0;
-    background: #EDF2F7;
-    border: 1px solid #E2E8F0;
+    color: #9AA0A6;
+    background: #EEEFF1;
+    border: 1px solid #D8D8D8;
     border-radius: 20px;
     padding: 1px 6px;
     white-space: nowrap;
 }
 
 :root {
-    --bg-base:        #F7FAFC;
+    --bg-base:        #F5F6F7;
     --bg-surface:     #FFFFFF;
-    --bg-elevated:    #EBF4FF;
+    --bg-elevated:    #EAF0FF;
     --bg-card:        #FFFFFF;
     --bg-input:       #FFFFFF;
-    --bg-sidebar:     #F0F7FF;
+    --bg-sidebar:     #F4F6FB;
 
-    --border:         #BEE3F8;
-    --border-subtle:  #E2EEF9;
-    --border-accent:  #3182CE;
+    --border:         #D8D8D8;
+    --border-subtle:  #E6EAF2;
+    --border-accent:  #0046FF;
 
-    --accent-primary: #2B6CB0;
-    --accent-blue:    #3182CE;
-    --accent-teal:    #0D9488;
-    --accent-green:   #059669;
-    --accent-sky:     #0EA5E9;
-    --accent-mint:    #10B981;
+    --accent-primary: #0046FF;
+    --accent-blue:    #0046FF;
+    --accent-teal:    #083651;
+    --accent-green:   #00C885;
+    --accent-sky:     #0046FF;
+    --accent-mint:    #00C885;
     --accent-amber:   #D97706;
     --accent-red:     #DC2626;
 
-    --text-primary:   #1A365D;
-    --text-secondary: #2C5282;
-    --text-muted:     #718096;
-    --text-light:     #A0AEC0;
+    --text-primary:   #1D1F24;
+    --text-secondary: #3A3E45;
+    --text-muted:     #6B7078;
+    --text-light:     #9AA0A6;
 
-    --font-display:   'Plus Jakarta Sans', sans-serif;
-    --font-body:      'Plus Jakarta Sans', sans-serif;
+    --font-display:   "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --font-body:      "Helvetica Neue", Helvetica, Arial, sans-serif;
     --font-mono:      'DM Mono', monospace;
 
     --radius-sm:      6px;
@@ -268,9 +268,9 @@ def _inject_css() -> None:
     --radius-lg:      16px;
     --radius-xl:      24px;
 
-    --shadow-card:    0 1px 8px rgba(43,108,176,0.10), 0 1px 3px rgba(43,108,176,0.06);
-    --shadow-hover:   0 4px 20px rgba(43,108,176,0.15), 0 1px 6px rgba(43,108,176,0.08);
-    --shadow-glow:    0 0 20px rgba(49,130,206,0.20);
+    --shadow-card:    0 1px 8px rgba(29,31,36,0.10), 0 1px 3px rgba(29,31,36,0.06);
+    --shadow-hover:   0 4px 20px rgba(29,31,36,0.15), 0 1px 6px rgba(29,31,36,0.08);
+    --shadow-glow:    0 0 20px rgba(0,70,255,0.20);
 }
 
 /* ── Global resets ──────────────────────────────────────────────────── */
@@ -327,13 +327,13 @@ code, pre, [data-testid="stCode"] {
 
 [data-testid="stTextInput"] input:focus {
     border-color: var(--accent-blue) !important;
-    box-shadow: 0 0 0 3px rgba(49,130,206,0.15) !important;
+    box-shadow: 0 0 0 3px rgba(0,70,255,0.15) !important;
     outline: none !important;
 }
 
 /* ── Buttons ────────────────────────────────────────────────────────── */
 [data-testid="stButton"] > button {
-    background: linear-gradient(135deg, #2B6CB0 0%, #3182CE 100%) !important;
+    background: linear-gradient(135deg, #0046FF 0%, #0046FF 100%) !important;
     color: #FFFFFF !important;
     border: none !important;
     border-radius: var(--radius-md) !important;
@@ -343,13 +343,13 @@ code, pre, [data-testid="stCode"] {
     letter-spacing: 0.02em !important;
     padding: 0.55rem 1.4rem !important;
     transition: all 0.2s ease !important;
-    box-shadow: 0 2px 10px rgba(43,108,176,0.30) !important;
+    box-shadow: 0 2px 10px rgba(29,31,36,0.30) !important;
     cursor: pointer !important;
 }
 
 [data-testid="stButton"] > button:hover {
-    background: linear-gradient(135deg, #2C5282 0%, #2B6CB0 100%) !important;
-    box-shadow: 0 4px 18px rgba(43,108,176,0.45) !important;
+    background: linear-gradient(135deg, #3A3E45 0%, #0046FF 100%) !important;
+    box-shadow: 0 4px 18px rgba(29,31,36,0.45) !important;
     transform: translateY(-1px) !important;
 }
 
@@ -480,7 +480,7 @@ hr { border-color: var(--border) !important; opacity: 0.8 !important; }
     vertical-align: middle;
 }
 
-.status-online  { background: #059669; box-shadow: 0 0 6px rgba(5,150,105,0.5); }
+.status-online  { background: #00C885; box-shadow: 0 0 6px rgba(5,150,105,0.5); }
 .status-offline { background: #DC2626; box-shadow: 0 0 6px rgba(220,38,38,0.5); }
 .status-label { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); vertical-align: middle; }
 
@@ -579,30 +579,30 @@ hr { border-color: var(--border) !important; opacity: 0.8 !important; }
     letter-spacing: 0.04em;
 }
 
-.badge-sygma          { background: #CCFBF1; color: #0F766E; border: 1px solid #99F6E4; }
+.badge-sygma          { background: #CCFBF1; color: #06293D; border: 1px solid #99F6E4; }
 .badge-biotransformer { background: #EDE9FE; color: #5B21B6; border: 1px solid #DDD6FE; }
 .badge-dl             { background: #FCE7F3; color: #9D174D; border: 1px solid #FBCFE8; }
 .badge-smartcyp       { background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A; }
 
 /* ── Enzyme isoform legend badges ───────────────────────────────────── */
-.isoform-UGT   { background: #D1FAE5; color: #065F46; border: 1px solid #6EE7B7; }
-.isoform-SULT  { background: #DBEAFE; color: #1E3A8A; border: 1px solid #93C5FD; }
+.isoform-UGT   { background: #D6F7EC; color: #06523A; border: 1px solid #6FE3BF; }
+.isoform-SULT  { background: #DCE6FF; color: #0037CC; border: 1px solid #9DB4FF; }
 .isoform-FMO   { background: #FEF3C7; color: #78350F; border: 1px solid #FCD34D; }
 .isoform-AO    { background: #FCE7F3; color: #831843; border: 1px solid #F9A8D4; }
 .isoform-MAO   { background: #EDE9FE; color: #4C1D95; border: 1px solid #C4B5FD; }
-.isoform-NAT   { background: #ECFDF5; color: #14532D; border: 1px solid #86EFAC; }
+.isoform-NAT   { background: #E9FBF4; color: #083D2A; border: 1px solid #6FE3BF; }
 .isoform-COMT  { background: #FFF7ED; color: #7C2D12; border: 1px solid #FDBA74; }
-.isoform-GST   { background: #F0FDF4; color: #166534; border: 1px solid #86EFAC; }
+.isoform-GST   { background: #E9FBF4; color: #06523A; border: 1px solid #6FE3BF; }
 .isoform-CYP3A4{ background: #FEF2F2; color: #7F1D1D; border: 1px solid #FCA5A5; }
-.isoform-CYP2D6{ background: #EFF6FF; color: #1E3A8A; border: 1px solid #93C5FD; }
+.isoform-CYP2D6{ background: #EFF3FF; color: #0037CC; border: 1px solid #9DB4FF; }
 .isoform-CYP2C9{ background: #FFF7ED; color: #7C2D12; border: 1px solid #FDBA74; }
 
 /* ── Consensus chips ────────────────────────────────────────────────── */
 .consensus-high {
     display: inline-block;
-    background: #D1FAE5;
-    color: #065F46;
-    border: 1px solid #6EE7B7;
+    background: #D6F7EC;
+    color: #06523A;
+    border: 1px solid #6FE3BF;
     border-radius: 20px;
     font-size: 0.70rem;
     font-weight: 600;
@@ -613,9 +613,9 @@ hr { border-color: var(--border) !important; opacity: 0.8 !important; }
 
 .consensus-rule {
     display: inline-block;
-    background: #DBEAFE;
-    color: #1E3A8A;
-    border: 1px solid #93C5FD;
+    background: #DCE6FF;
+    color: #0037CC;
+    border: 1px solid #9DB4FF;
     border-radius: 20px;
     font-size: 0.70rem;
     padding: 2px 10px;
@@ -635,9 +635,9 @@ hr { border-color: var(--border) !important; opacity: 0.8 !important; }
 
 .consensus-single {
     display: inline-block;
-    background: #F1F5F9;
-    color: #475569;
-    border: 1px solid #CBD5E1;
+    background: #F1F2F4;
+    color: #4A4E57;
+    border: 1px solid #CFD0D2;
     border-radius: 20px;
     font-size: 0.70rem;
     padding: 2px 10px;
@@ -939,15 +939,15 @@ def _render_kpi_cards(
         {"label": "Parent Monoisotopic Mass",
          "value": f"{neutral_mass:.4f}",
          "sub":   f"Da  ·  {parent.get('molecular_formula', '')}",
-         "line":  "#3182CE"},
+         "line":  "#0046FF"},
         {"label": "Metabolites Generated",
          "value": str(total),
          "sub":   "after cross-engine deduplication",
-         "line":  "#0D9488"},
+         "line":  "#083651"},
         {"label": "Consensus Verified",
          "value": str(consensus),
          "sub":   f"{(consensus/total*100):.0f}% of total" if total else "—",
-         "line":  "#059669"},
+         "line":  "#00C885"},
         {"label": "Max Soft-Spot Score",
          "value": f"{max_vuln:.3f}",
          "sub":   f"normalised ensemble  ·  {elapsed:.2f}s",
@@ -1011,9 +1011,9 @@ def _render_svg_panel(
             )
             st.markdown(
                 f'<div style="margin-top:0.7rem;padding:0.5rem 0.6rem;'
-                f'background:#F8FAFB;border:1px solid #E2E8F0;'
+                f'background:#F5F6F7;border:1px solid #D8D8D8;'
                 f'border-radius:8px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">'
-                f'<span style="font-size:0.68rem;color:#718096;'
+                f'<span style="font-size:0.68rem;color:#6B7078;'
                 f'font-family:var(--font-display);font-weight:700;'
                 f'letter-spacing:0.08em;text-transform:uppercase;'
                 f'margin-right:4px;white-space:nowrap;">Enzyme targets</span>'
@@ -1173,20 +1173,20 @@ def _render_sidebar() -> dict[str, Any]:
     def _section(title: str) -> None:
         """Render a clean section header inside the sidebar."""
         st.sidebar.markdown(
-            f'<div style="font-family:\'Plus Jakarta Sans\',sans-serif;'
+            f'<div style="font-family:\'Helvetica Neue\',sans-serif;'
             f'font-size:0.68rem;font-weight:700;letter-spacing:0.11em;'
-            f'text-transform:uppercase;color:#718096;'
+            f'text-transform:uppercase;color:#6B7078;'
             f'margin:1rem 0 0.5rem;padding-bottom:0.35rem;'
-            f'border-bottom:1.5px solid #E2EEF9;">{title}</div>',
+            f'border-bottom:1.5px solid #E6EAF2;">{title}</div>',
             unsafe_allow_html=True,
         )
 
     # ── Header ─────────────────────────────────────────────────────────
     st.sidebar.markdown(
-        '<div style="font-family:\'Plus Jakarta Sans\',sans-serif;'
+        '<div style="font-family:\'Helvetica Neue\',sans-serif;'
         'font-size:0.68rem;font-weight:700;letter-spacing:0.12em;'
-        'text-transform:uppercase;color:#718096;'
-        'padding-bottom:0.5rem;border-bottom:1.5px solid #E2EEF9;"'
+        'text-transform:uppercase;color:#6B7078;'
+        'padding-bottom:0.5rem;border-bottom:1.5px solid #E6EAF2;"'
         '>Pipeline Configuration</div>',
         unsafe_allow_html=True,
     )
@@ -1209,28 +1209,28 @@ def _render_sidebar() -> dict[str, Any]:
     st.sidebar.markdown(
         """
         <div style="margin-top:0.8rem;padding-top:0.75rem;
-                    border-top:1px solid #E2E8F0;">
+                    border-top:1px solid #D8D8D8;">
           <div style="font-size:0.65rem;font-weight:700;letter-spacing:0.1em;
-                      text-transform:uppercase;color:#CBD5E0;margin-bottom:0.55rem;">
+                      text-transform:uppercase;color:#CFD0D2;margin-bottom:0.55rem;">
             Optional — requires setup
           </div>
-          <div style="background:#F7FAFC;border:1px solid #EDF2F7;
+          <div style="background:#F5F6F7;border:1px solid #EEEFF1;
                       border-radius:8px;padding:0.55rem 0.7rem;margin-bottom:0.4rem;">
-            <div style="font-size:0.82rem;color:#CBD5E0;
+            <div style="font-size:0.82rem;color:#CFD0D2;
                         text-decoration:line-through;margin-bottom:0.18rem;">
               BioTransformer
             </div>
-            <div style="font-size:0.72rem;color:#A0AEC0;">
+            <div style="font-size:0.72rem;color:#9AA0A6;">
               Needs BioTransformer3.0.jar — see README
             </div>
           </div>
-          <div style="background:#F7FAFC;border:1px solid #EDF2F7;
+          <div style="background:#F5F6F7;border:1px solid #EEEFF1;
                       border-radius:8px;padding:0.55rem 0.7rem;">
-            <div style="font-size:0.82rem;color:#CBD5E0;
+            <div style="font-size:0.82rem;color:#CFD0D2;
                         text-decoration:line-through;margin-bottom:0.18rem;">
               DL Transformer (MetaTrans)
             </div>
-            <div style="font-size:0.72rem;color:#A0AEC0;">
+            <div style="font-size:0.72rem;color:#9AA0A6;">
               Needs HuggingFace model weights — see README
             </div>
           </div>
